@@ -271,12 +271,14 @@ def play_audio(filename):
     # 3. 播放前等待缓冲区准备
     time.sleep_ms(100)
 
-    # 4. 从内存播放，计算每块播放时间
+    # 4. 从内存播放，使用绝对时间控制避免累积误差
     chunk_bytes = CHUNK * 2  # 16bit = 2字节
-    # 每块播放时间(ms) = 样本数 / 采样率 * 1000
-    chunk_duration_ms = int(CHUNK * 1000 / SAMPLE_RATE)  # 2048/16000*1000 = 128ms
+    chunk_duration_ms = int(CHUNK * 1000 / SAMPLE_RATE)  # 128ms
 
+    start_time = time.ticks_ms()
+    chunk_count = 0
     offset = 0
+
     while offset < len(audio_data):
         end = min(offset + chunk_bytes, len(audio_data))
         chunk = audio_data[offset:end]
@@ -284,9 +286,15 @@ def play_audio(filename):
         if len(chunk) < chunk_bytes:
             chunk = chunk + bytes(chunk_bytes - len(chunk))
         stream.write(chunk)
-        # 等待这块数据播放完成，避免缓冲区溢出
-        time.sleep_ms(chunk_duration_ms - 10)  # 留10ms余量
+        chunk_count += 1
         offset = end
+
+        # 用绝对时间控制，避免累积误差
+        target_time = start_time + chunk_count * chunk_duration_ms
+        now = time.ticks_ms()
+        wait_ms = time.ticks_diff(target_time, now) - 5  # 留5ms余量
+        if wait_ms > 0:
+            time.sleep_ms(wait_ms)
 
     # 5. 等待播放完成
     time.sleep_ms(200)
@@ -694,10 +702,22 @@ if __name__ == "__main__":
                         if local_audio:
                             play_audio(local_audio)
 
-                    # 5. 恢复显示
+                    # 5. 恢复显示（等待音频资源释放）
                     print("恢复显示...")
-                    time.sleep_ms(500)
-                    Display.init(Display.ST7701, width=DISPLAY_WIDTH, height=DISPLAY_HEIGHT, to_ide=True)
+                    gc.collect()  # 强制垃圾回收释放音频资源
+                    time.sleep(1)
+
+                    # 重试机制
+                    for retry in range(3):
+                        try:
+                            Display.init(Display.ST7701, width=DISPLAY_WIDTH, height=DISPLAY_HEIGHT, to_ide=True)
+                            break
+                        except Exception as e:
+                            print("Display初始化失败({}): {}".format(retry + 1, e))
+                            gc.collect()
+                            time.sleep(1)
+                    else:
+                        print("Display初始化失败，继续运行...")
 
                     # 6. 显示完成状态
                     pet.set_expression("happy")
@@ -723,10 +743,6 @@ if __name__ == "__main__":
         print("用户中断")
     except Exception as e:
         print("异常: " + str(e))
-        import io
-        buf = io.StringIO()
-        sys.print_exception(e, buf)
-        print(buf.getvalue())
     finally:
         print("清理资源...")
         try:
