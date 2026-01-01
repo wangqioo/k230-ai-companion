@@ -152,9 +152,11 @@ def text_to_speech_edge(text, output_file):
     asyncio.run(_tts())
 
     # 转换为WAV (16kHz, 16bit, mono - K230兼容格式)
+    # -fflags +bitexact: 去掉metadata，生成干净的44字节WAV头
     subprocess.run([
         'ffmpeg', '-y', '-i', mp3_file,
         '-ar', '16000', '-ac', '1', '-sample_fmt', 's16',
+        '-fflags', '+bitexact',
         output_file
     ], capture_output=True)
 

@@ -245,29 +245,55 @@ def play_audio(filename):
     """播放WAV音频文件"""
     print("播放: " + filename)
 
-    wf = wave.open(filename, 'rb')
-    CHUNK = int(wf.get_framerate() / 25)
+    # 1. 读取文件到内存
+    print("加载音频到内存...")
+    with open(filename, 'rb') as f:
+        f.read(44)  # 跳过44字节WAV头
+        audio_data = f.read()
+    print("已加载 {} 字节".format(len(audio_data)))
+
+    # 2. 使用更大的CHUNK减少卡顿
+    CHUNK = 2048  # 增大缓冲区
+    FORMAT = paInt16
+    CHANNELS = 1
 
     p = PyAudio()
     p.initialize(CHUNK)
 
     stream = p.open(
-        format=p.get_format_from_width(wf.get_sampwidth()),
-        channels=wf.get_channels(),
-        rate=wf.get_framerate(),
+        format=FORMAT,
+        channels=CHANNELS,
+        rate=SAMPLE_RATE,  # 16000
         output=True,
         frames_per_buffer=CHUNK
     )
 
-    data = wf.read_frames(CHUNK)
-    while data:
-        stream.write(data)
-        data = wf.read_frames(CHUNK)
+    # 3. 播放前等待缓冲区准备
+    time.sleep_ms(100)
+
+    # 4. 从内存播放，计算每块播放时间
+    chunk_bytes = CHUNK * 2  # 16bit = 2字节
+    # 每块播放时间(ms) = 样本数 / 采样率 * 1000
+    chunk_duration_ms = int(CHUNK * 1000 / SAMPLE_RATE)  # 2048/16000*1000 = 128ms
+
+    offset = 0
+    while offset < len(audio_data):
+        end = min(offset + chunk_bytes, len(audio_data))
+        chunk = audio_data[offset:end]
+        # 补零对齐
+        if len(chunk) < chunk_bytes:
+            chunk = chunk + bytes(chunk_bytes - len(chunk))
+        stream.write(chunk)
+        # 等待这块数据播放完成，避免缓冲区溢出
+        time.sleep_ms(chunk_duration_ms - 10)  # 留10ms余量
+        offset = end
+
+    # 5. 等待播放完成
+    time.sleep_ms(200)
 
     stream.stop_stream()
     stream.close()
     p.terminate()
-    wf.close()
 
     print("播放完成!")
 
