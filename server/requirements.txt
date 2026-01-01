@@ -1,0 +1,4 @@
+flask>=2.0.0
+openai>=1.0.0
+edge-tts>=6.1.0
+dashscope>=1.10.0

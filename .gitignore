@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Server uploads and generated audio
+server/uploads/
+server/audio/
+
+# Logs
+*.log
+
+# API keys and secrets (never commit!)
+.env
+*.key
+secrets.json
+
+# K230 SDK (too large, download separately)
+k230_sdk/
+
+# ESP-IDF and other large SDK directories
+v5.3.4/
+foc_gimbal_idf/
+
+# FOC reference materials (archived)
+foc/
+
+# Other project directories
+shuangzhou_yuntai/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Audio test files
+*.wav
+*.mp3
+!server/test_*.wav
+
+# Model files (too large for git)
+*.kmodel
