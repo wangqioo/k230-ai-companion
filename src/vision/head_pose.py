@@ -224,6 +224,7 @@ class HeadPoseDetector:
                 'pitch': pitch,  # 俯仰角：抬头(+) / 低头(-)
                 'yaw': yaw,      # 偏航角：左转(+) / 右转(-)
                 'roll': roll,    # 翻滚角：左倾(+) / 右倾(-)
+                'confidence': det_box[4] if len(det_box) > 4 else 1.0,
             })
 
         return results

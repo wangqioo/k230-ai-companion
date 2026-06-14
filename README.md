@@ -1,138 +1,118 @@
-# K230 桌面宠物 (Desktop Pet)
+# K230 + ESP32 AI Companion
 
-基于嘉楠K230开发板的AI语音交互桌面宠物项目。
+桌面伙伴采用双芯片分工：
 
-## 项目简介
+- **K230：视觉协处理器**，只负责摄像头、KPU推理和视觉结果输出。
+- **ESP32：系统主控**，负责实时状态机、执行器、音频、屏幕、网络和故障恢复。
 
-这是一个运行在庐山派K230开发板上的桌面宠物，支持：
-- 语音对话：通过麦克风录音，AI理解并语音回复
-- 表情动画：可爱的眨眼、呼吸、说话动画
-- 视觉感知：人脸检测和头部朝向跟踪（视觉版）
+K230 的 Python 代码不承担严格实时控制。ESP32 不接收原始图像，只接收经过
+K230 处理后的结构化视觉事件。
 
-## 系统架构
+## Runtime Architecture
 
+```text
+GC2093 camera
+      |
+      v
+K230 CanMV
+  face detection
+  head pose
+  primary-face selection
+      |
+      | UART2 binary frames
+      v
+ESP32
+  CRC + timeout
+  real-time state machine
+  audio / display / motors / network
 ```
-┌─────────────────┐         ┌─────────────────────┐
-│   K230开发板     │  HTTP   │    PC服务器          │
-│                 │ ──────> │                     │
-│ - 录音/播放     │         │ - ASR语音识别        │
-│ - 表情显示      │ <────── │ - LLM对话(通义千问)  │
-│ - WiFi通信      │  音频   │ - TTS语音合成        │
-└─────────────────┘         └─────────────────────┘
+
+## Wiring
+
+| K230 | ESP32 | Note |
+|---|---|---|
+| GPIO11 / UART2 TX | GPIO16 / UART2 RX | Visual events |
+| GPIO12 / UART2 RX | GPIO17 / UART2 TX | Reserved for future commands |
+| GND | GND | Required common ground |
+
+Both boards use 3.3V logic. Default baud rate is `921600`, format `8N1`.
+
+## K230 Deployment
+
+Copy `src/` to `/sdcard/pet/`, then run:
+
+```python
+import sys
+sys.path.append("/sdcard/pet")
+exec(open("/sdcard/pet/main_vision_uart.py").read())
 ```
 
-采用"边缘设备 + 网关"架构，因为K230不支持TLS/WSS，无法直接调用云端API。
+Required model files:
 
-## 硬件要求
+```text
+/sdcard/examples/kmodel/face_detection_320.kmodel
+/sdcard/examples/kmodel/face_pose.kmodel
+/sdcard/examples/utils/prior_data_320.bin
+```
 
-- **开发板**: 庐山派K230 CanMV开发板
-- **显示屏**: 3.1寸LCD扩展板 (800x480)
-- **音频**: 板载麦克风 + 3.5mm耳机/音箱
-- **网络**: 2.4GHz WiFi (5GHz不支持)
+The primary entry is [src/main_vision_uart.py](src/main_vision_uart.py).
 
-## 快速开始
+## ESP32 Deployment
 
-### 1. 服务器端
+Open [esp32/vision_receiver/vision_receiver.ino](esp32/vision_receiver/vision_receiver.ino)
+with Arduino IDE or incorporate `vision_protocol.h/.cpp` into the ESP32 firmware.
+
+The example:
+
+- Incrementally parses UART bytes.
+- Rejects invalid CRC frames.
+- Tracks face and face-lost events.
+- Enters a no-vision state after 500 ms without a valid frame.
+
+Product behavior belongs in the marked ESP32 state-machine hooks.
+
+## UART Protocol
+
+```text
+Magic(2) Version(1) Type(1) Sequence(2) Timestamp(4)
+PayloadLength(2) Payload(N) CRC16(2)
+```
+
+- Integers are big-endian.
+- CRC is CRC-16/CCITT-FALSE.
+- Face coordinates are normalized and independent of camera resolution.
+- Full details are in
+  [the design document](docs/superpowers/specs/2026-06-14-k230-vision-coprocessor-design.md).
+
+## Tests
 
 ```bash
-# 安装依赖
-cd server
-pip install -r requirements.txt
+python3 -m unittest discover -s tests -p 'test_*.py' -v
 
-# 配置API Key (修改app.py中的DASHSCOPE_API_KEY)
-# 获取地址: https://dashscope.console.aliyun.com/
-
-# 运行服务器
-python app.py
+g++ -std=c++17 -Wall -Wextra -pedantic \
+  tests/cpp/test_vision_protocol.cpp \
+  esp32/vision_receiver/vision_protocol.cpp \
+  -o /tmp/test_vision_protocol
+/tmp/test_vision_protocol
 ```
 
-### 2. K230端
+## Legacy Experiments
 
-1. 修改 `src/main_voice.py` 中的配置：
-```python
-WIFI_SSID = "你的WiFi名称"      # 仅支持2.4GHz
-WIFI_PASSWORD = "WiFi密码"
-SERVER_IP = "服务器IP地址"       # 运行app.py的电脑IP
-```
+The following files are retained as references but are no longer the target
+runtime architecture:
 
-2. 将 `src/` 目录内容复制到K230的 `/sdcard/pet/`
+- `src/main.py`: K230 visual display experiment.
+- `src/main_voice.py`: K230 audio and voice conversation experiment.
+- `server/`: PC ASR/LLM/TTS gateway experiment.
+- `src/network/`: K230 network and audio probes.
 
-3. 运行：
-```python
-exec(open('/sdcard/pet/main_voice.py').read())
-```
+New product behavior should be implemented on ESP32, not added to these K230
+experiments.
 
-4. 按下按钮开始说话，松开等待回复
+## Hardware Notes
 
-## 项目结构
-
-```
-k230_Claude/
-├── src/                      # K230端代码
-│   ├── main_voice.py         # 语音版主程序 ★
-│   ├── main.py               # 视觉版主程序
-│   ├── display/              # 显示模块
-│   │   └── pet_face.py       # 表情渲染
-│   ├── vision/               # 视觉模块
-│   │   └── head_pose.py      # 头部检测
-│   └── network/              # 网络测试
-│       ├── test_wifi.py
-│       ├── test_audio.py
-│       └── ...
-├── server/                   # PC服务器
-│   ├── app.py                # 主服务器(ASR+LLM+TTS)
-│   ├── test_server.py        # 测试服务器
-│   └── requirements.txt
-├── docs/                     # 文档
-│   ├── architecture.md       # 架构设计
-│   └── development_plan.md   # 开发计划
-└── CLAUDE.md                 # Claude Code指南
-```
-
-## 版本历史
-
-### v0.1.0 - 语音对话版 (2026-01-02)
-- 实现完整语音对话流程
-- K230录音 → 服务器ASR → LLM对话 → TTS合成 → K230播放
-- 表情动画（眨眼、呼吸、说话）
-- 解决Display与Audio共用MediaManager的冲突
-
-## 开发笔记
-
-### K230 MicroPython注意事项
-
-1. **无urequests模块** - 需用原生socket实现HTTP
-2. **无f-string多行支持** - 使用字符串拼接
-3. **WiFi仅2.4GHz** - iPhone热点需开启"最大兼容性"
-4. **音频仅WAV格式** - 不支持MP3
-5. **Display与Audio冲突** - 不能同时使用，需切换
-
-### 关键经验
-
-1. **MediaManager不要频繁init/deinit** - 会导致网络中断
-2. **HTTP大数据分块发送** - 170KB音频需分块
-3. **服务器响应需等待** - ASR+LLM+TTS约5-10秒
-4. **Display.init()必须在MediaManager.init()之前**
-
-## 依赖
-
-### 服务器端
-- Flask >= 2.0.0
-- openai >= 1.0.0 (用于调用通义千问)
-- edge-tts >= 6.1.0
-- dashscope >= 1.10.0
-
-### K230端
-- CanMV K230固件 v1.4+
-- 3.1寸LCD扩展板
-
-## 许可证
-
-MIT License
-
-## 致谢
-
-- [嘉楠科技](https://www.canaan-creative.com/) - K230芯片
-- [立创开发板](https://www.lckfb.com/) - 庐山派开发板
-- [阿里云](https://dashscope.console.aliyun.com/) - 通义千问API
-- [Edge-TTS](https://github.com/rany2/edge-tts) - 免费TTS
+- K230 UART0 is reserved for the RT-Smart console; use UART2.
+- K230/ESP32 GPIO are 3.3V only.
+- K230 ADC inputs are limited to 1.8V.
+- Call K230 inference and drawing functions provided by the firmware instead of
+  pixel-by-pixel Python loops.

@@ -1,2 +1,1 @@
-# 视觉模块
-from .head_pose import HeadPoseDetector
+# Vision package. Hardware-specific modules are imported by K230 entry points.

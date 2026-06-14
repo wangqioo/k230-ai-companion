@@ -1,152 +1,87 @@
-# 桌面宠物项目 - 技术架构文档
+# K230 + ESP32 Architecture
 
-## 项目概述
+## Decision
 
-基于 K230 庐山派的智能桌面宠物，通过头部朝向检测实现自然唤醒交互。
+K230 is a dedicated visual coprocessor. ESP32 is the product controller.
 
-**核心特点：**
-- 注视唤醒：用户看向设备时自动激活，无需语音唤醒词
-- 云端智能：本地仅做轻量检测，复杂AI处理全部云端完成
-- 表情交互：桌宠眼睛实时跟随用户位置
+This removes product real-time behavior from CanMV MicroPython while retaining
+K230's useful hardware-accelerated camera, Ai2d, and KPU capabilities.
 
-## 系统架构
+## Ownership
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                            本地 (K230)                              │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                     唯一的本地 AI                            │   │
-│  │                   头部朝向检测 (KPU)                         │   │
-│  │              判断: 用户是否正在看我?                         │   │
-│  └──────────────────────────┬──────────────────────────────────┘   │
-│                             │                                       │
-│         ┌───────────────────┼───────────────────┐                  │
-│         ▼                   ▼                   ▼                  │
-│   ┌──────────┐       ┌──────────┐        ┌──────────┐             │
-│   │ 摄像头   │       │ 麦克风   │        │ LCD屏幕  │             │
-│   │ 采集图像 │       │ 采集音频 │        │ 显示表情 │             │
-│   └────┬─────┘       └────┬─────┘        └────▲─────┘             │
-│        │                  │                   │                    │
-│        └──────────┬───────┘                   │                    │
-│                   ▼                           │                    │
-│            ┌─────────────┐              ┌─────┴─────┐              │
-│            │  WiFi 上传  │              │ 表情渲染  │              │
-│            │ 音频+图像   │              │ 眼睛朝向  │              │
-│            └──────┬──────┘              └─────▲─────┘              │
-└───────────────────┼───────────────────────────┼────────────────────┘
-                    │                           │
-                    ▼                           │
-┌───────────────────────────────────────────────┴────────────────────┐
-│                          云端大模型                                 │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │
-│  │ 语音识别    │  │ 视觉理解    │  │ 对话生成    │                │
-│  │ ASR        │  │ 表情/场景   │  │ LLM        │                │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                │
-│         └────────────────┼────────────────┘                       │
-│                          ▼                                         │
-│                   ┌─────────────┐                                  │
-│                   │ 返回数据    │                                  │
-│                   │ • 回复文本  │                                  │
-│                   │ • TTS音频   │                                  │
-│                   │ • 表情指令  │                                  │
-│                   └─────────────┘                                  │
-└────────────────────────────────────────────────────────────────────┘
+| Concern | Owner |
+|---|---|
+| Camera capture | K230 |
+| Face detection and head pose | K230 |
+| Visual observation normalization | K230 |
+| UART frame publication | K230 |
+| Product state machine | ESP32 |
+| Buttons, audio, display, motors | ESP32 |
+| WiFi and cloud communication | ESP32 |
+| Watchdog and safe-state behavior | ESP32 |
+
+## Data Flow
+
+```mermaid
+flowchart LR
+    Camera --> KPU[K230 visual inference]
+    KPU --> Observation[normalized observation]
+    Observation --> Protocol[UART2 + CRC16]
+    Protocol --> Parser[ESP32 parser]
+    Parser --> Freshness[500 ms freshness check]
+    Freshness --> StateMachine[ESP32 product state machine]
+    StateMachine --> Hardware[audio / display / actuators / network]
 ```
 
-## 状态机设计
+## K230 Runtime
 
-```
-                 ┌──────────────────┐
-                 │      待机        │
-                 │  头部朝向检测中  │
-                 │  (低功耗循环)    │
-                 └────────┬─────────┘
-                          │
-                          │ 检测到用户看向我
-                          │ (yaw角 < 阈值)
-                          ▼
-                 ┌──────────────────┐
-                 │      激活        │◀─────┐
-                 │  • 采集音视频    │      │
-                 │  • 实时上传云端  │      │ 云端返回
-                 │  • 表情跟随用户  │      │ 表情/语音
-                 │  • 播放云端回复  │──────┘
-                 └────────┬─────────┘
-                          │
-                          │ 检测到用户转头离开
-                          │ (yaw角 > 阈值 持续N秒)
-                          ▼
-                 ┌──────────────────┐
-                 │    退出激活      │
-                 │  • 播放告别动画  │
-                 │  • 回到待机      │
-                 └──────────────────┘
-```
+`src/main_vision_uart.py`:
 
-## 本地模块划分
+1. Initializes UART2 at 921600 baud.
+2. Creates the K230 camera pipeline and head-pose detector.
+3. Selects the largest valid face.
+4. Publishes face observations, face-lost events, and heartbeats.
+5. Never decides product expressions, actions, or cloud behavior.
 
-| 模块 | 功能 | 运行位置 |
-|------|------|----------|
-| 头部朝向检测 | 人脸检测 + 姿态估计，判断唤醒/退出 | 大核 KPU |
-| 表情显示系统 | 渲染桌宠表情，眼睛跟随 | 大核 |
-| 音频采集 | 麦克风录音 | 小核 |
-| 音频播放 | 播放云端TTS | 小核 |
-| 云端通信 | WebSocket 双向通信 | 小核 |
+The K230 may pause or restart. This must not block ESP32.
 
-## 云端接口协议
+## ESP32 Runtime
 
-### WebSocket 通信
+`esp32/vision_receiver/vision_receiver.ino`:
 
-**上行 (K230 → 云端):**
-```json
-{
-  "type": "stream",
-  "audio": "<base64 音频数据>",
-  "image": "<base64 图像数据>",
-  "timestamp": 1703900000000
-}
-```
+1. Reads UART without blocking.
+2. Incrementally finds frame magic and validates version, length, and CRC.
+3. Updates the latest visual observation.
+4. Marks vision unavailable after 500 ms without any valid frame.
+5. Invokes ESP32-owned safe behavior when vision becomes unavailable.
 
-**下行 (云端 → K230):**
-```json
-{
-  "type": "response",
-  "text": "你好呀，今天看起来心情不错！",
-  "audio": "<base64 TTS音频>",
-  "expression": "happy",
-  "eye_target": [0.3, 0.5]
-}
-```
+## Protocol Messages
 
-## 表情系统
+| Type | Value | Payload |
+|---|---:|---|
+| Heartbeat | 1 | Empty |
+| Face | 2 | Normalized box, pose, confidence |
+| Face lost | 3 | Empty |
+| Error | 127 | Two-byte error code |
 
-### 表情类型
-- `neutral` - 默认/平静
-- `happy` - 开心 (眼睛弯弯)
-- `curious` - 好奇 (眼睛睁大)
-- `sleepy` - 困倦 (眼睛半闭)
-- `talking` - 说话中 (嘴巴动画)
+Face payload values:
 
-### 眼睛跟随逻辑
-- 用户脸在画面左边 → 眼睛往左看
-- 用户脸在画面右边 → 眼睛往右看
-- 用户脸在画面上方 → 眼睛往上看
+| Value | Range |
+|---|---|
+| Center X/Y | `-1000..1000` |
+| Width/height | `0..1000` |
+| Pitch/yaw/roll | signed centidegrees |
+| Confidence | `0..100` |
 
-## 配置参数
+## Recovery Rules
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| WAKE_ANGLE_THRESHOLD | 20° | 唤醒角度阈值 |
-| EXIT_ANGLE_THRESHOLD | 45° | 退出角度阈值 |
-| EXIT_TIMEOUT | 3秒 | 转头多久后退出 |
+- ESP32 ignores corrupt and unknown frames.
+- ESP32 never waits for a K230 response.
+- Missing K230 traffic triggers the ESP32 no-vision state.
+- K230 inference failure emits an error frame when possible and cleans up.
+- A K230 restart is tolerated because sequence wraparound and reset are valid.
 
-## 硬件清单
+## Legacy Code
 
-| 模块 | 型号/规格 | 状态 |
-|------|-----------|------|
-| 主板 | K230 庐山派 | ✅ 已有 |
-| 摄像头 | GC2093 (板载) | ✅ 已有 |
-| LCD | 立创 3.1寸 800x480 扩展板 | ✅ 已有 |
-| 麦克风 | 板载麦克风 | ✅ 已有 |
-| 喇叭 | 外接喇叭 | ✅ 已有 |
-| WiFi | RTL8189FTV (板载 2.4GHz) | ✅ 已有 |
+The K230 voice, display, and network experiments remain for reference. They are
+not modules in the target runtime and should not receive new product behavior.
