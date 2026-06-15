@@ -46,6 +46,10 @@ class VisionPublisher:
         payload = bytes(((code >> 8) & 0xFF, code & 0xFF))
         return self._publish(MSG_ERROR, payload, timestamp_ms)
 
+    def publish_face_observation(self, observation, timestamp_ms):
+        payload = pack_face_observation(observation)
+        return self._publish(MSG_FACE, payload, timestamp_ms)
+
     def publish_face(
         self,
         frame_width,

@@ -46,6 +46,35 @@ class VisionProtocolTest(unittest.TestCase):
         self.assertEqual(observation["roll_cd"], 125)
         self.assertEqual(observation["confidence"], 92)
 
+    def test_pack_canonical_face_observation(self):
+        payload = pack_face_observation(
+            {
+                "center_x": 0,
+                "center_y": -250,
+                "width": 500,
+                "height": 333,
+                "pitch_cd": 1234,
+                "yaw_cd": -567,
+                "roll_cd": 125,
+                "confidence": 92,
+            }
+        )
+
+        observation = unpack_face_observation(payload)
+
+        self.assertEqual(observation["center_x"], 0)
+        self.assertEqual(observation["center_y"], -250)
+        self.assertEqual(observation["width"], 500)
+        self.assertEqual(observation["height"], 333)
+        self.assertEqual(observation["pitch_cd"], 1234)
+        self.assertEqual(observation["yaw_cd"], -567)
+        self.assertEqual(observation["roll_cd"], 125)
+        self.assertEqual(observation["confidence"], 92)
+
+    def test_pack_canonical_face_observation_requires_all_fields(self):
+        with self.assertRaises(ValueError):
+            pack_face_observation({"center_x": 0})
+
     def test_stream_decoder_recovers_after_corrupt_frame(self):
         corrupt = bytearray(
             encode_frame(MSG_HEARTBEAT, b"", sequence=1, timestamp_ms=10)

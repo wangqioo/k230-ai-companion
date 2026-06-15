@@ -15,7 +15,7 @@ from libs.PipeLine import PipeLine
 
 from transport.uart_publisher import VisionPublisher
 from vision.head_pose import HeadPoseDetector
-from vision.visual_observation import select_primary_face
+from vision.visual_observation import make_primary_face_observation
 
 
 UART_BAUDRATE = 921600
@@ -63,15 +63,14 @@ def run():
             os.exitpoint()
             now = ticks_ms()
             frame = pipeline.get_frame()
-            primary = select_primary_face(detector.detect(frame))
+            observation = make_primary_face_observation(
+                detector.detect(frame),
+                FRAME_SIZE,
+            )
 
-            if primary:
-                publisher.publish_face(
-                    frame_width=FRAME_SIZE[0],
-                    frame_height=FRAME_SIZE[1],
-                    box=primary["box"],
-                    euler=primary["euler"],
-                    confidence=primary.get("confidence", 100),
+            if observation:
+                publisher.publish_face_observation(
+                    observation,
                     timestamp_ms=now,
                 )
             elif time.ticks_diff(now, last_face_lost) >= FACE_LOST_REPEAT_MS:

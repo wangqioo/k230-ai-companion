@@ -39,7 +39,21 @@ Both boards use 3.3V logic. Default baud rate is `921600`, format `8N1`.
 
 ## K230 Deployment
 
-Copy `src/` to `/sdcard/pet/`, then run:
+For manual deployment, build and copy the single-file script:
+
+```bash
+python3 tools/build_k230_single.py
+```
+
+Copy `dist/main_vision_uart_single.py` to the K230 SD card, then run:
+
+```python
+exec(open("/sdcard/pet/main_vision_uart_single.py").read())
+```
+
+The source layout is still modular. If you prefer module deployment, copy
+`src/` to `/sdcard/pet/`, then run:
+
 
 ```python
 import sys

@@ -86,9 +86,46 @@ def decode_frame(frame):
     }
 
 
+CANONICAL_FACE_FIELDS = (
+    "center_x",
+    "center_y",
+    "width",
+    "height",
+    "pitch_cd",
+    "yaw_cd",
+    "roll_cd",
+    "confidence",
+)
+
+
+def pack_canonical_face_observation(observation):
+    missing = [
+        field for field in CANONICAL_FACE_FIELDS if field not in observation
+    ]
+    if missing:
+        raise ValueError("missing face observation fields: " + ",".join(missing))
+
+    return struct.pack(
+        FACE_FORMAT,
+        _clamp(int(observation["center_x"]), -1000, 1000),
+        _clamp(int(observation["center_y"]), -1000, 1000),
+        _clamp(int(observation["width"]), 0, 1000),
+        _clamp(int(observation["height"]), 0, 1000),
+        _clamp(int(observation["pitch_cd"]), -32768, 32767),
+        _clamp(int(observation["yaw_cd"]), -32768, 32767),
+        _clamp(int(observation["roll_cd"]), -32768, 32767),
+        _clamp(int(observation["confidence"]), 0, 100),
+    )
+
+
 def pack_face_observation(
-    frame_width, frame_height, box, euler, confidence=100
+    frame_width, frame_height=None, box=None, euler=None, confidence=100
 ):
+    if isinstance(frame_width, dict):
+        if frame_height is not None or box is not None or euler is not None:
+            raise ValueError("canonical observation cannot be mixed with legacy arguments")
+        return pack_canonical_face_observation(frame_width)
+
     if frame_width <= 0 or frame_height <= 0:
         raise ValueError("frame dimensions must be positive")
 

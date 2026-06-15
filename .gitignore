@@ -7,6 +7,8 @@ __pycache__/
 *.egg-info/
 .eggs/
 dist/
+!dist/
+!dist/main_vision_uart_single.py
 build/
 
 # Virtual environments

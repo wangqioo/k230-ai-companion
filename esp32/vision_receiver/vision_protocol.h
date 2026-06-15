@@ -40,6 +40,7 @@ struct FaceObservation {
 
 uint16_t crc16Ccitt(const uint8_t* data, std::size_t length);
 bool decodeFace(const Frame& frame, FaceObservation& observation);
+bool decodeError(const Frame& frame, uint16_t& errorCode);
 
 class Parser {
 public:

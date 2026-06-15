@@ -9,6 +9,7 @@ namespace {
 constexpr uint8_t kMagic0 = 0xA5;
 constexpr uint8_t kMagic1 = 0x5A;
 constexpr std::size_t kFacePayloadSize = 15;
+constexpr std::size_t kErrorPayloadSize = 2;
 
 uint16_t readU16(const uint8_t* data) {
     return static_cast<uint16_t>(
@@ -125,6 +126,16 @@ bool decodeFace(const Frame& frame, FaceObservation& observation) {
     observation.yawCentidegrees = readI16(&frame.payload[10]);
     observation.rollCentidegrees = readI16(&frame.payload[12]);
     observation.confidence = frame.payload[14];
+    return true;
+}
+
+bool decodeError(const Frame& frame, uint16_t& errorCode) {
+    if (frame.type != MessageType::Error ||
+        frame.payloadLength != kErrorPayloadSize) {
+        return false;
+    }
+
+    errorCode = readU16(&frame.payload[0]);
     return true;
 }
 

@@ -54,6 +54,33 @@ class VisionPublisherTest(unittest.TestCase):
         self.assertEqual(observation["yaw_cd"], 1050)
         self.assertEqual(observation["confidence"], 75)
 
+    def test_publish_face_observation_writes_canonical_payload(self):
+        uart = MemoryUART()
+        publisher = VisionPublisher(uart)
+
+        publisher.publish_face_observation(
+            {
+                "center_x": -100,
+                "center_y": 200,
+                "width": 300,
+                "height": 400,
+                "pitch_cd": 123,
+                "yaw_cd": -456,
+                "roll_cd": 789,
+                "confidence": 88,
+            },
+            timestamp_ms=40,
+        )
+
+        frame = decode_frame(uart.writes[0])
+        observation = unpack_face_observation(frame["payload"])
+        self.assertEqual(frame["type"], MSG_FACE)
+        self.assertEqual(frame["timestamp_ms"], 40)
+        self.assertEqual(observation["center_x"], -100)
+        self.assertEqual(observation["center_y"], 200)
+        self.assertEqual(observation["yaw_cd"], -456)
+        self.assertEqual(observation["confidence"], 88)
+
 
 if __name__ == "__main__":
     unittest.main()
